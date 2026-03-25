@@ -20,7 +20,8 @@ TARGETS ?= rv64 \
     chimera \
     snitch_testbench \
     magia \
-	mempool
+	mempool \
+	magia_flex
 
 ifndef BUILDDIR
 ifdef GVSOC_WORKDIR
