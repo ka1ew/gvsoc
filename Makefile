@@ -1,5 +1,6 @@
 include test.mk
 include pulp/pulp/chips/softhier/softhier.mk
+include pulp/pulp/chips/softhier_3d/softhier.mk
 
 CMAKE_FLAGS ?= -j 16
 CMAKE ?= cmake
