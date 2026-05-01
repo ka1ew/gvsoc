@@ -1,7 +1,10 @@
 include test.mk
 include pulp/pulp/chips/softhier/softhier.mk
-include pulp/pulp/chips/softhier_3d/softhier.mk
-include pulp/pulp/chips/softhier_torus/softhier.mk
+include pulp/pulp/chips/softhier_3d/softhier_3d.mk
+include pulp/pulp/chips/softhier_torus/softhier_torus.mk
+include pulp/pulp/chips/softhier_3d_torus/softhier_3d_torus.mk
+include pulp/pulp/chips/softhier_ring/softhier_ring.mk
+# include pulp/pulp/chips/softhier_hierarchical_ring/softhier_hierarchical_ring.mk
 
 CMAKE_FLAGS ?= -j 16
 CMAKE ?= cmake
