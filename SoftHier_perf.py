@@ -7,7 +7,7 @@ import os
 # Configuration
 # ==========================================
 # Sweep based on Global Target Gbps
-TARGET_RATES_GBPS = [10000, 20000, 30000, 35000, 40000, 45000, 47750, 50000, 51000, 52000] 
+TARGET_RATES_GBPS = [10000, 20000, 30000, 35000, 40000, 45000, 47750, 50000, 51000, 52000, 60000] 
 
 NUM_CLUSTERS = 100 
 TILE_SIZE_BYTES = 16384
