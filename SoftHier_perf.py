@@ -7,18 +7,20 @@ import os
 # Configuration
 # ==========================================
 # Sweep based on Global Target Gbps
-TARGET_RATES_GBPS = [10000, 20000, 30000, 35000, 40000, 45000, 47750, 50000, 51000, 52000, 60000] 
+TARGET_RATES_GBPS = [10, 12, 14, 16, 18, 20] #, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40]
+TARGET_RATES_GBPS = [x * 1000 for x in TARGET_RATES_GBPS]
 
 NUM_CLUSTERS = 100 
 TILE_SIZE_BYTES = 16384
-TOTAL_TRANSFERS = 100000
+TOTAL_TRANSFERS = 10000
 TOTAL_BITS = TOTAL_TRANSFERS * TILE_SIZE_BYTES * 8
 
 SOURCE_FILE = "pulp/pulp/chips/softhier/sw/app_example/main.c"
 APP_ARG = "" 
 
-injection_rates_bps = []
-latencies_cycles = [] # Updated name to reflect cycles
+target_rates_plot_gbps = []
+achieved_throughputs_bps = []
+latencies_cycles = []
 
 def update_c_macro(filepath, macro_name, new_value):
     """Directly modifies the #define in the C file to bypass CMake quirks."""
@@ -92,8 +94,9 @@ for target_gbps in TARGET_RATES_GBPS:
         throughput_bps = TOTAL_BITS / exec_time_s
         avg_packet_lat_cycles = float(match_lat.group(1))
         
-        injection_rates_bps.append(throughput_bps)
-        latencies_cycles.append(avg_packet_lat_cycles) 
+        target_rates_plot_gbps.append(target_gbps)
+        achieved_throughputs_bps.append(throughput_bps)
+        latencies_cycles.append(avg_packet_lat_cycles)
         
         print(f"    -> Avg Pkt Latency: {avg_packet_lat_cycles:.2f} cycles | Actual Throughput: {throughput_bps / 1e9:.2f} Gbps | Congestion: {global_congestion_rate:.2f}%")
     else:
@@ -102,19 +105,43 @@ for target_gbps in TARGET_RATES_GBPS:
 # ==========================================
 # Plotting the Results
 # ==========================================
+
+# ---------------------------------------------------------
+# Plot 1: Average Packet Latency vs. Target Rate
+# ---------------------------------------------------------
 plt.figure(figsize=(10, 6))
 
-x_data = [rate / 1e9 for rate in injection_rates_bps]
-y_data = [lat for lat in latencies_cycles] 
+plt.plot(target_rates_plot_gbps, latencies_cycles, marker='o', linestyle='-', color='r', linewidth=2, label="Flex-2DMesh")
 
-plt.plot(x_data, y_data, marker='o', linestyle='-', color='b', linewidth=2, label="Flex-2DMesh")
-
-plt.title("NoC Load-Latency Saturation Curve", fontsize=14, fontweight='bold')
-plt.xlabel("Sustained Injection Rate / Throughput (Gbps)", fontsize=12)
+plt.title("Average Packet Latency vs Injection Rate", fontsize=14, fontweight='bold')
+plt.xlabel("Injection Rate (Gbps)", fontsize=12)
 plt.ylabel("Average Packet Latency (Clock Cycles)", fontsize=12) 
 plt.grid(True, which="both", ls="--", alpha=0.7)
 plt.legend()
 
-plt.savefig("noc_load_latency.png", dpi=300)
-print("\n[*] Plot saved as noc_load_latency.png")
+plt.savefig("2dmesh_latency.png", dpi=300)
+print("\n[*] Plot 1 saved as 2dmesh_latency.png")
+plt.show()
+
+# ---------------------------------------------------------
+# Plot 2: Achieved Throughput vs. Target Rate
+# ---------------------------------------------------------
+plt.figure(figsize=(10, 6))
+
+achieved_gbps = [rate / 1e9 for rate in achieved_throughputs_bps]
+
+# Plot the achieved throughput
+plt.plot(target_rates_plot_gbps, achieved_gbps, marker='s', linestyle='-', color='b', linewidth=2, label="Achieved Throughput")
+
+# Plot an "Ideal" reference line where Achieved == Target
+# plt.plot(target_rates_plot_gbps, target_rates_plot_gbps, linestyle='--', color='gray', linewidth=1.5, label="Ideal (Achieved = Target)")
+
+plt.title("Achieved Throughput vs Injection Rate", fontsize=14, fontweight='bold')
+plt.xlabel("Injection Rate (Gbps)", fontsize=12)
+plt.ylabel("Achieved Throughput (Gbps)", fontsize=12) 
+plt.grid(True, which="both", ls="--", alpha=0.7)
+plt.legend()
+
+plt.savefig("2dmesh_throughput.png", dpi=300)
+print("[*] Plot 2 saved as 2dmesh_throughput.png")
 plt.show()
