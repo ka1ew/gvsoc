@@ -1,17 +1,5 @@
 include test.mk
 
-# Softhier topology selection
-TOPOLOGY ?= softhier
-
-ifeq ($(findstring softhier,$(TOPOLOGY)),)
-    ACTUAL_TOPO = softhier_$(TOPOLOGY)
-else
-    ACTUAL_TOPO = $(TOPOLOGY)
-endif
-
-include pulp/pulp/chips/$(ACTUAL_TOPO)/$(ACTUAL_TOPO).mk
-
-
 CMAKE_FLAGS ?= -j 16
 CMAKE ?= cmake
 
