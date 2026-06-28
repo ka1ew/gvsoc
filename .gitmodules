@@ -16,3 +16,6 @@
 [submodule "engine"]
 	path = engine
 	url = https://github.com/gvsoc/gvsoc-engine.git
+[submodule "config_tree"]
+	path = config_tree
+	url = https://github.com/gvsoc/config_tree.git

@@ -3,25 +3,36 @@ include test.mk
 CMAKE_FLAGS ?= -j 16
 CMAKE ?= cmake
 
+ifeq ($(TARGETS),)
+
 TARGETS ?= rv64 \
     rv64_untimed \
     pulp-open \
     pulp-open-nn \
-    pulp-open:chip/cluster/redmule=True \
-    pulp.spatz.spatz \
-    snitch_spatz \
+    pulp-open:attr.chip/cluster/has_redmule=true \
     occamy \
     siracusa \
     snitch \
     ara \
+    ara_v2 \
     spatz \
+    spatz_v2 \
     snitch:core_type=fast \
     pulp.snitch.snitch_cluster_single \
     chimera \
     snitch_testbench \
-    magia \
-	mempool \
-	magia_flex
+    magia_v2 \
+	mempool
+
+RUN_TARGETS = $(TARGETS) default
+
+else
+
+RUN_TARGETS = $(TARGETS)
+
+endif
+
+GVTEST_TARGET_FLAGS = $(foreach t,$(subst ;, ,$(RUN_TARGETS)),--target $(t))
 
 ifndef BUILDDIR
 ifdef GVSOC_WORKDIR
@@ -39,14 +50,22 @@ INSTALLDIR = install
 endif
 endif
 
+# Absolute install path, needed for things like configure --prefix and rpaths
+INSTALLDIR_ABS := $(abspath $(INSTALLDIR))
+
 export PATH:=$(CURDIR)/gapy/bin:$(PATH)
+
+# Module roots passed to CMake at build time and to the doc build, where
+# each module's docs/ tree gets embedded into the manual. Keep build and
+# doc in sync by sharing this list.
+GVSOC_MODULES = $(CURDIR)/engine/python;$(CURDIR)/core/models;$(CURDIR)/pulp;$(CURDIR)/pulp/targets;$(CURDIR)/gvrun/python;$(CURDIR)/config_tree
 
 all: checkout build
 
 checkout:
 	git submodule update --recursive --init
 
-.PHONY: build gui
+.PHONY: build gui deps
 
 ifdef DEBUG
 BUILD_TYPE = RelWithDebInfo
@@ -61,23 +80,88 @@ gvrun.build:
 	cmake --build $(BUILDDIR)/gvrun $(CMAKE_FLAGS)
 	cmake --install $(BUILDDIR)/gvrun
 
+	$(CMAKE) -S config_tree -B $(BUILDDIR)/config_tree -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
+		-DCMAKE_INSTALL_PREFIX=$(INSTALLDIR)
+
+	cmake --build $(BUILDDIR)/config_tree $(CMAKE_FLAGS)
+	cmake --install $(BUILDDIR)/config_tree
+
 build: gvrun.build
 	# Change directory to curdir to avoid issue with symbolic links
+	# Bake install/lib into the build RPATH. The generated model .so files are
+	# installed as plain files (no install-time RPATH rewrite), so they keep
+	# their build RPATH; adding install/lib there lets a privately-built libdw
+	# (see the `deps` target) be found at run time without LD_LIBRARY_PATH.
 	cd $(CURDIR) && $(CMAKE) -S . -B $(BUILDDIR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 		-DCMAKE_INSTALL_PREFIX=$(INSTALLDIR) \
-		-DGVSOC_MODULES="$(CURDIR)/core/models;$(CURDIR)/pulp;$(CURDIR)/pulp/targets;$(CURDIR)/gvrun/python;$(MODULES)" \
+		-DCMAKE_BUILD_RPATH=$(INSTALLDIR_ABS)/lib \
+		-DGVSOC_MODULES="$(GVSOC_MODULES);$(MODULES)" \
 		-DGVSOC_TARGETS="${TARGETS}" \
 		-DCMAKE_SKIP_INSTALL_RPATH=false
 
-	cd $(CURDIR) && $(CMAKE) --build $(BUILDDIR) $(CMAKE_FLAGS)
+	# CPATH/LIBRARY_PATH let the compiler find the privately-built libdw at
+	# build time. The dirs are searched after the regular ones, so this is a
+	# no-op when they don't exist or when the system already provides libdw.
+	cd $(CURDIR) && \
+		CPATH="$(INSTALLDIR_ABS)/include:$$CPATH" \
+		LIBRARY_PATH="$(INSTALLDIR_ABS)/lib:$$LIBRARY_PATH" \
+		$(CMAKE) --build $(BUILDDIR) $(CMAKE_FLAGS)
 	cd $(CURDIR) && $(CMAKE) --install $(BUILDDIR)
 
 
 clean:
 	rm -rf $(BUILDDIR) $(INSTALLDIR)
 
+
+######################################################################
+## 				Third-party dependencies						 				##
+######################################################################
+#
+# libdw (provided by elfutils) is needed by gvsoc at build/link and run
+# time. It is installed on most machines, so this is NOT wired into the
+# build. On the (few) hosts that lack it, run `make deps` once: it builds
+# libdw (and the libelf it depends on) from source and installs them into
+# the SDK install folder. The build passes -DCMAKE_PREFIX_PATH=$(INSTALLDIR),
+# so once present this private copy is picked up automatically; otherwise
+# the build falls back to the system libdw.
+
+ELFUTILS_VERSION := 0.191
+ELFUTILS_URL := https://sourceware.org/elfutils/ftp/$(ELFUTILS_VERSION)/elfutils-$(ELFUTILS_VERSION).tar.bz2
+ELFUTILS_SRC := $(CURDIR)/third_party/elfutils-$(ELFUTILS_VERSION)
+
+# libdw.so is installed by elfutils; use it as the build stamp so deps is
+# only run once.
+deps: $(INSTALLDIR_ABS)/lib/libdw.so
+
+$(INSTALLDIR_ABS)/lib/libdw.so:
+	mkdir -p $(INSTALLDIR_ABS) third_party
+	# Download if missing (ignore wget's exit code; some wget builds return
+	# non-zero even on a complete download) and let tar be the integrity gate.
+	cd third_party && \
+		if [ ! -f elfutils-$(ELFUTILS_VERSION).tar.bz2 ]; then \
+			wget -q $(ELFUTILS_URL) || true; \
+		fi && \
+		if [ ! -d elfutils-$(ELFUTILS_VERSION) ]; then \
+			tar xf elfutils-$(ELFUTILS_VERSION).tar.bz2; \
+		fi
+	# -Wno-error keeps newer compilers from failing elfutils' -Werror build;
+	# debuginfod is disabled to avoid pulling in libcurl.
+	cd $(ELFUTILS_SRC) && \
+		./configure --prefix=$(INSTALLDIR_ABS) \
+			--disable-debuginfod --disable-libdebuginfod \
+			CFLAGS="-g -O2 -Wno-error" CXXFLAGS="-g -O2 -Wno-error"
+	# Build the whole tree so the static backends that libdw.so pulls in
+	# (libebl, libcpu, libdwelf, libdwfl, ...) are produced in the right
+	# order, then install only the libs/headers gvsoc needs (libelf, libdw
+	# and the libdwfl header used by the iss trace model) to keep the folder
+	# clean.
+	$(MAKE) -C $(ELFUTILS_SRC)
+	$(MAKE) -C $(ELFUTILS_SRC)/libelf install
+	$(MAKE) -C $(ELFUTILS_SRC)/libdw install
+	$(MAKE) -C $(ELFUTILS_SRC)/libdwfl install
+
 github.test:
-	gvtest --testset testset-github.cfg --max-timeout 120 --no-fail run table junit
+	gvtest $(GVTEST_TARGET_FLAGS) --testset testset-github.cfg --max-timeout 120 --no-fail run table junit
 
 riscv:
 	wget https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.01.17/riscv64-elf-ubuntu-22.04-gcc-nightly-2025.01.17-nightly.tar.xz
@@ -86,19 +170,24 @@ riscv:
 test.withbuild: riscv
 	PATH=$(CURDIR)/riscv/bin:$(PATH) && gvtest --testset testset_withbuild.cfg  --thread 1 --no-fail run table junit
 
+# Build the manuals from the engine docs. Exporting GVSOC_MODULES lets the
+# Sphinx conf.py walk each module root and embed its docs/ tree (target
+# pages in the user manual, component pages in the developer manual), the
+# documentation counterpart of CMake pulling in each module's CMakeLists.
+doc: export GVSOC_MODULES := $(GVSOC_MODULES)
 doc:
-	cd core/docs/user_manual && make html
-	cd core/docs/developer_manual && make html
+	cd engine/docs/user_manual && $(MAKE) html
+	cd engine/docs/developer_manual && $(MAKE) html
 	@echo
-	@echo "User documentation: core/docs/user_manual/_build/html/index.html"
-	@echo "Developper documentation: core/docs/developer_manual/_build/html/index.html"
+	@echo "User documentation: engine/docs/user_manual/_build/html/index.html"
+	@echo "Developper documentation: engine/docs/developer_manual/_build/html/index.html"
 
 
 ######################################################################
 ## 				Make Targets for DRAMSys Integration 				##
 ######################################################################
 
-SYSTEMC_VERSION := 2.3.4
+SYSTEMC_VERSION := 3.0.1
 SYSTEMC_GIT_URL := https://github.com/accellera-official/systemc.git
 SYSTEMC_INSTALL_DIR := $(PWD)/third_party/systemc_install
 
@@ -171,6 +260,6 @@ gui:
 	fi
 	cd "gui-release" && \
 	git fetch --all && \
-	git checkout 95ca11922a760b526275ae3abda65988de2caeab
+	git checkout f845120d34ec7916d9f93d9ddfb624747ad39c60
 	mkdir -p $(INSTALLDIR)
 	cp -r gui-release/* $(INSTALLDIR)
