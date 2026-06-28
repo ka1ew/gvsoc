@@ -1,6 +1,6 @@
 [submodule "core"]
 	path = core
-	url = https://github.com/ka1ew/gvsoc-core.git
+	url = https://github.com/gvsoc/gvsoc-core.git
 [submodule "pulp"]
 	path = pulp
 	url = https://github.com/ka1ew/gvsoc-pulp.git
@@ -13,3 +13,6 @@
 [submodule "gvrun"]
 	path = gvrun
 	url = https://github.com/gvsoc/gvrun.git
+[submodule "engine"]
+	path = engine
+	url = https://github.com/gvsoc/gvsoc-engine.git
